@@ -157,8 +157,8 @@ void wifi_connection()
     esp_event_handler_register(IP_EVENT, IP_EVENT_STA_GOT_IP, wifi_event_handler, NULL);
     wifi_config_t wifi_configuration = {
             .sta = {
-                    .ssid = "Suchnet",
-                    .password = "Suchnet216"}};
+                    .ssid = "iPhone (Piotek)",
+                    .password = "13579012"}};
     esp_wifi_set_config(ESP_IF_WIFI_STA, &wifi_configuration);
     ESP_ERROR_CHECK( esp_wifi_set_mode(WIFI_MODE_STA) );
     // 3 - Wi-Fi Start Phase
@@ -172,11 +172,9 @@ static void http_rest_with_hostname_path(void) {
     char local_response_buffer[MAX_HTTP_OUTPUT_BUFFER] = {0};
 
     esp_http_client_config_t config = {
-            .host = "192.168.2.23",
-            .port = 8080,
-            .path = "/",
-            .transport_type = HTTP_TRANSPORT_OVER_TCP,
-            .user_data = local_response_buffer,
+            .url = "http://worldclockapi.com/api/json/est/now",
+            .method = HTTP_METHOD_GET,
+            .cert_pem = NULL,
             .event_handler = _http_event_handler,
     };
     esp_http_client_handle_t client = esp_http_client_init(&config);
@@ -208,7 +206,7 @@ void app_main(void)
     led_blink_setup();
     wifi_connection();
     ESP_LOGI(TAG, "Connected to AP, begin http example");
-    vTaskDelay(5000/ portTICK_PERIOD_MS);
+    vTaskDelay(10000/ portTICK_PERIOD_MS);
 
     xTaskCreate(&http_get_task, "http_get_task", 8192, NULL, 5, NULL);
 }
