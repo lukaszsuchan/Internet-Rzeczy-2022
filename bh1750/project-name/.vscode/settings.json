@@ -1,0 +1,14 @@
+{
+    "C_Cpp.intelliSenseEngine": "Tag Parser",
+    "idf.adapterTargetName": "esp32",
+    "idf.customExtraPaths": "C:\\Users\\piotr\\.espressif\\tools\\xtensa-esp32-elf\\esp-2021r2-patch3-8.4.0\\xtensa-esp32-elf\\bin;C:\\Users\\piotr\\.espressif\\tools\\xtensa-esp32s2-elf\\esp-2021r2-patch3-8.4.0\\xtensa-esp32s2-elf\\bin;C:\\Users\\piotr\\.espressif\\tools\\xtensa-esp32s3-elf\\esp-2021r2-patch3-8.4.0\\xtensa-esp32s3-elf\\bin;C:\\Users\\piotr\\.espressif\\tools\\riscv32-esp-elf\\esp-2021r2-patch3-8.4.0\\riscv32-esp-elf\\bin;C:\\Users\\piotr\\.espressif\\tools\\esp32ulp-elf\\2.28.51-esp-20191205\\esp32ulp-elf-binutils\\bin;C:\\Users\\piotr\\.espressif\\tools\\esp32s2ulp-elf\\2.28.51-esp-20191205\\esp32s2ulp-elf-binutils\\bin;C:\\Users\\piotr\\.espressif\\tools\\cmake\\3.16.4\\bin;C:\\Users\\piotr\\.espressif\\tools\\openocd-esp32\\v0.11.0-esp32-20220706\\openocd-esp32\\bin;C:\\Users\\piotr\\.espressif\\tools\\ninja\\1.10.2;C:\\Users\\piotr\\.espressif\\tools\\idf-exe\\1.0.1;C:\\Users\\piotr\\.espressif\\tools\\ccache\\3.7;C:\\Users\\piotr\\.espressif\\tools\\dfu-util\\0.9\\dfu-util-0.9-win64",
+    "idf.customExtraVars": "{\"OPENOCD_SCRIPTS\":\"C:\\\\Users\\\\piotr\\\\.espressif\\\\tools\\\\openocd-esp32\\\\v0.11.0-esp32-20220706/openocd-esp32/share/openocd/scripts\",\"IDF_CCACHE_ENABLE\":\"1\"}",
+    "idf.espIdfPathWin": "C:\\Users\\piotr\\esp\\esp-idf",
+    "idf.openOcdConfigs": [
+        "board/esp32-wrover-kit-3.3v.cfg"
+    ],
+    "idf.portWin": "COM5",
+    "idf.pythonBinPathWin": "C:\\Users\\piotr\\.espressif\\python_env\\idf4.3_py3.8_env\\Scripts\\python.exe",
+    "idf.toolsPathWin": "C:\\Users\\piotr\\.espressif",
+    "idf.flashType": "UART"
+}

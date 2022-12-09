@@ -14,7 +14,7 @@ void task(void *pvParameters)
     i2c_dev_t dev;
     memset(&dev, 0, sizeof(i2c_dev_t));
 
-    ESP_ERROR_CHECK(si7021_init_desc(&dev, 0, CONFIG_EXAMPLE_I2C_MASTER_SDA, CONFIG_EXAMPLE_I2C_MASTER_SCL));
+    si7021_init_desc(&dev, 0, CONFIG_EXAMPLE_I2C_MASTER_SDA, CONFIG_EXAMPLE_I2C_MASTER_SCL);
 
 #ifdef CONFIG_EXAMPLE_CHIP_TYPE_SI70xx
     uint64_t serial;
@@ -76,7 +76,7 @@ void task(void *pvParameters)
 
 void app_main()
 {
-    ESP_ERROR_CHECK(i2cdev_init());
+    i2cdev_init();
 
     xTaskCreatePinnedToCore(task, "test", configMINIMAL_STACK_SIZE * 8, NULL, 5, NULL, APP_CPU_NUM);
 }
