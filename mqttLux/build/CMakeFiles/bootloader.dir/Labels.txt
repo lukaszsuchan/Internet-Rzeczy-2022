@@ -1,0 +1,13 @@
+# Target labels
+ bootloader
+# Source files and their labels
+/home/lsuchan/Dokumenty/studia/iot/Internet-Rzeczy-2022/mqttLux/build/CMakeFiles/bootloader
+/home/lsuchan/Dokumenty/studia/iot/Internet-Rzeczy-2022/mqttLux/build/CMakeFiles/bootloader.rule
+/home/lsuchan/Dokumenty/studia/iot/Internet-Rzeczy-2022/mqttLux/build/CMakeFiles/bootloader-complete.rule
+/home/lsuchan/Dokumenty/studia/iot/Internet-Rzeczy-2022/mqttLux/build/bootloader-prefix/src/bootloader-stamp/bootloader-build.rule
+/home/lsuchan/Dokumenty/studia/iot/Internet-Rzeczy-2022/mqttLux/build/bootloader-prefix/src/bootloader-stamp/bootloader-configure.rule
+/home/lsuchan/Dokumenty/studia/iot/Internet-Rzeczy-2022/mqttLux/build/bootloader-prefix/src/bootloader-stamp/bootloader-download.rule
+/home/lsuchan/Dokumenty/studia/iot/Internet-Rzeczy-2022/mqttLux/build/bootloader-prefix/src/bootloader-stamp/bootloader-install.rule
+/home/lsuchan/Dokumenty/studia/iot/Internet-Rzeczy-2022/mqttLux/build/bootloader-prefix/src/bootloader-stamp/bootloader-mkdir.rule
+/home/lsuchan/Dokumenty/studia/iot/Internet-Rzeczy-2022/mqttLux/build/bootloader-prefix/src/bootloader-stamp/bootloader-patch.rule
+/home/lsuchan/Dokumenty/studia/iot/Internet-Rzeczy-2022/mqttLux/build/bootloader-prefix/src/bootloader-stamp/bootloader-update.rule
