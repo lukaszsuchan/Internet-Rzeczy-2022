@@ -2,5 +2,8 @@
     "idf.port": "/dev/ttyUSB0",
     "idf.adapterTargetName": "esp32",
     "idf.flashType": "UART",
-    "C_Cpp.errorSquiggles": "disabled"
+    "C_Cpp.errorSquiggles": "disabled",
+    "idf.openOcdConfigs": [
+        "board/esp32-wrover-kit-3.3v.cfg"
+    ]
 }
