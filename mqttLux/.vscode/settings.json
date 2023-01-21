@@ -5,5 +5,10 @@
     "C_Cpp.errorSquiggles": "disabled",
     "idf.openOcdConfigs": [
         "board/esp32-wrover-kit-3.3v.cfg"
-    ]
+    ],
+    "files.associations": {
+        "adc.h": "c",
+        "esp_sleep.h": "c",
+        "*.inc": "c"
+    }
 }

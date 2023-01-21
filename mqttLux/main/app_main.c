@@ -57,6 +57,9 @@
 #include "driver/gpio.h"
 #include "host/ble_hs.h"
 #include "host/util/util.h"
+#include <esp_http_client.h>
+#include "driver/timer.h"
+#include <time.h>
 
 #if defined(CONFIG_EXAMPLE_I2C_ADDRESS_LO)
 #define ADDR BH1750_ADDR_LO
@@ -95,7 +98,10 @@
 #define BH1750_SENSOR_ADDR 0x23     /*!< BH1750 sensor address */
 
 #define BUTTON_GPIO 5
+#define RESET_BUTTON_GPIO 18
+#define WAKE_UP_BUTTON_GPIO 2
 #define DELAY_TIME_MS 10000
+#define LED_PIN 2
 
 bool is_low = false;
 bool reset = false;
@@ -115,8 +121,6 @@ typedef struct
 
 wifi_credentials_t wifi_credentials;
 
-volatile char *main_topic = "waterit/device1/parameter/";
-
 // ble config
 #define DEVICE_INFO_SERVICE_UUID 0x180A
 
@@ -133,6 +137,77 @@ uint8_t ble_addr_type;
 
 volatile bool were_ssid_given = false;
 volatile bool were_psk_given = false;
+
+TaskHandle_t xHandle = NULL;
+
+void save_sensor_data(char *sensor1_value, char *sensor2_value, char *sensor3_value, char *sensor4_value)
+{
+    // Open NVS
+    nvs_handle handle;
+    esp_err_t err = nvs_open("sensors", NVS_READWRITE, &handle);
+    ESP_ERROR_CHECK(err);
+
+    // Get the count of already stored items
+    uint32_t count;
+    err = nvs_get_u32(handle, "count", &count);
+
+    // Get data from NVS
+    int *sensor_data = (int *)malloc(count * sizeof(int));
+    size_t size = count * sizeof(int);
+    err = nvs_get_blob(handle, "sensors_data", sensor_data, &size);
+    ESP_ERROR_CHECK(err);
+
+    // Add new data from sensors
+    sensor_data[count] = sensor1_value;
+    sensor_data[count + 1] = sensor2_value;
+    sensor_data[count + 2] = sensor3_value;
+    sensor_data[count + 3] = sensor4_value;
+
+    // Save the updated data to NVS
+    err = nvs_set_blob(handle, "sensors_data", sensor_data, (count + 4) * sizeof(int));
+    ESP_ERROR_CHECK(err);
+
+    // Update the count of items in NVS
+    err = nvs_set_u32(handle, "count", count + 4);
+    ESP_ERROR_CHECK(err);
+
+    // Close NVS
+    nvs_close(handle);
+
+    // Free dynamically allocated memory
+    free(sensor_data);
+}
+
+void led_blink_setup()
+{
+    gpio_reset_pin(LED_PIN);
+    gpio_set_direction(LED_PIN, GPIO_MODE_OUTPUT);
+}
+
+void led_blink()
+{
+    while (1)
+    {
+        gpio_set_level(LED_PIN, 0);
+        vTaskDelay(1000 / portTICK_PERIOD_MS);
+        gpio_set_level(LED_PIN, 1);
+        vTaskDelay(1000 / portTICK_PERIOD_MS);
+
+    //     // ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
+    //     // vTaskDelete(xHandle);
+    }
+}
+
+void led_blink_connected()
+{
+    while (1)
+    {
+        gpio_set_level(LED_PIN, 0);
+        vTaskDelay(200 / portTICK_PERIOD_MS);
+        gpio_set_level(LED_PIN, 1);
+        vTaskDelay(200 / portTICK_PERIOD_MS);
+    }
+}
 
 esp_err_t bh1750_init(i2c_port_t i2c_num)
 {
@@ -241,6 +316,7 @@ void ble_app_advertise(void);
 // callback from characteristic 0x00, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88, 0x99, 0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff
 static int device_write_ssid(uint8_t conn_handle, uint8_t attr_handle, struct ble_gatt_access_ctxt *ctxt, void *arg)
 {
+    vTaskDelay(100);
     char *incoming_data = (char *)ctxt->om->om_data;
     printf("incoming message: %s\n", incoming_data);
     cJSON *payload = cJSON_Parse(incoming_data);
@@ -334,6 +410,15 @@ static int ble_gap_event(struct ble_gap_event *event, void *arg)
 //     }
 // }
 
+timer_group_t timer_group = TIMER_GROUP_0;
+timer_idx_t timer_idx = TIMER_0;
+
+void timer_callback(void *arg)
+{
+    // Send notification to the task
+    xTaskNotifyGive(xHandle);
+}
+
 void ble_app_advertise(void)
 {
     struct ble_hs_adv_fields fields;
@@ -372,11 +457,28 @@ void ble_app_advertise(void)
     //     }
     //     vTaskDelay(100 / portTICK_PERIOD_MS);
     // }
+    timer_config_t config;
+    config.alarm_en = TIMER_ALARM_EN;
+    config.auto_reload = TIMER_AUTORELOAD_DIS;
+    config.counter_dir = TIMER_COUNT_UP;
+    config.divider = TIMG_T1_DIVIDER;
+    config.intr_type = TIMER_INTR_LEVEL;
+    config.counter_en = TIMER_PAUSE;
+    timer_init(timer_group, timer_idx, &config);
+    timer_set_alarm_value(timer_group, timer_idx, 15000000); // 15s in microsecond
+    timer_enable_intr(timer_group, timer_idx);
+    timer_isr_register(timer_group, timer_idx, timer_callback, NULL, ESP_INTR_FLAG_IRAM, NULL);
+
+    // Start the timer
     while (1)
     {
+        vTaskDelay(10);
+        gpio_set_level(LED_PIN, 0);
         if (gpio_get_level(BUTTON_GPIO) == 0)
         {
+            timer_start(timer_group, timer_idx);
             ble_gap_adv_start(ble_addr_type, NULL, 15000, &adv_params, ble_gap_event, NULL);
+            xTaskCreate(&led_blink, "LED_BLINK", 512, NULL, 5, &xHandle);
             break;
         }
     }
@@ -384,9 +486,9 @@ void ble_app_advertise(void)
 
 void ble_app_on_sync(void)
 {
-    // ble_addr_t addr;
-    // ble_hs_id_gen_rnd(1, &addr);
-    // ble_hs_id_set_rnd(addr.val);
+    ble_addr_t addr;
+    ble_hs_id_gen_rnd(1, &addr);
+    ble_hs_id_set_rnd(addr.val);
     ble_hs_id_infer_auto(0, &ble_addr_type); // determines automatic address.
     ble_app_advertise();                     // start advertising the services -->
 }
@@ -451,15 +553,29 @@ static void event_handler(void *arg, esp_event_base_t event_base,
         if (s_retry_num < EXAMPLE_ESP_MAXIMUM_RETRY)
         {
 
-            // xTaskCreate(&led_blink, "LED_BLINK", 512, NULL, 5, NULL);
-            // vTaskDelay(1000/portTICK_RATE_MS);
             esp_wifi_connect();
             s_retry_num++;
             ESP_LOGI(TAG, "retry to connect to the AP");
         }
         else
         {
-            xEventGroupSetBits(s_wifi_event_group, WIFI_FAIL_BIT);
+            wifi_event_sta_disconnected_t *event = (wifi_event_sta_disconnected_t *)event_data;
+            char ssid_char[event->ssid_len];
+            memcpy(event->ssid, ssid_char, sizeof(ssid_char));
+            if (event->reason == WIFI_REASON_CONNECTION_FAIL)
+            {
+                ESP_LOGI(TAG, "wrong password");
+                xEventGroupSetBits(s_wifi_event_group, WIFI_FAIL_BIT);
+            }
+            else if (event->reason == WIFI_REASON_NO_AP_FOUND)
+            {
+                ESP_LOGI(TAG, "ap no found");
+                // xTaskCreate(&led_blink, "LED_BLINK", 512, NULL, 5, &xHandle);
+                esp_sleep_enable_timer_wakeup(time_in_us);
+                printf("goigo to sleep for %lld seconds\n", time_in_us);
+                vTaskDelay(100);
+                esp_deep_sleep_start();
+            }
         }
         ESP_LOGI(TAG, "connect to the AP fail");
     }
@@ -496,6 +612,172 @@ void erase_wifi_credentials_from_nvs()
     }
     nvs_close(my_handle);
     ESP_LOGI("NVS", "Wifi credentials erased successfully from NVS");
+}
+
+bool checkIsFirstConnection()
+{
+    bool isFirstConnection = false;
+    nvs_handle my_handle;
+    esp_err_t err = nvs_open("storage", NVS_READONLY, &my_handle);
+    if (err != ESP_OK)
+    {
+        // ESP_LOG_INFO("Not init connection");
+    }
+
+    // Pobranie wartości flagi z pamięci NVS
+    int flag;
+    err = nvs_get_i32(my_handle, "flag", &flag);
+    if (err != ESP_OK)
+    {
+        isFirstConnection = true;
+    }
+
+    // Zamknięcie pamięci NVS
+    nvs_close(my_handle);
+    return isFirstConnection;
+}
+
+void save_flag(int flag)
+{
+    nvs_handle my_handle;
+    esp_err_t err = nvs_open("storage", NVS_READWRITE, &my_handle);
+    if (err != ESP_OK)
+    {
+        // Obsługa błędu
+    }
+
+    err = nvs_set_i32(my_handle, "flag", flag);
+    if (err != ESP_OK)
+    {
+        // Obsługa błędu
+    }
+
+    nvs_commit(my_handle);
+    nvs_close(my_handle);
+}
+void erase_flag()
+{
+    nvs_handle my_handle;
+    esp_err_t err = nvs_open("storage", NVS_READWRITE, &my_handle);
+    if (err != ESP_OK)
+    {
+        // Obsługa błędu
+    }
+
+    err = nvs_erase_key(my_handle, "flag");
+    if (err != ESP_OK)
+    {
+        // Obsługa błędu
+    }
+
+    nvs_commit(my_handle);
+    nvs_close(my_handle);
+}
+
+void activate_device()
+{
+    esp_http_client_config_t config = {
+        .url = "http://172.20.10.3:8080/waterit/api/device/activate",
+        .method = HTTP_METHOD_POST,
+    };
+    esp_http_client_handle_t client = esp_http_client_init(&config);
+
+    esp_http_client_set_post_field(client, "name=BLE-PLANT", strlen("name=BLE-PLANT"));
+    vTaskDelay(10000 / portTICK_PERIOD_MS);
+    esp_err_t err = esp_http_client_perform(client);
+    if (err == ESP_OK)
+    {
+        ESP_LOGI(TAG, "Status = %d, content_length = %d",
+                 esp_http_client_get_status_code(client),
+                 esp_http_client_get_content_length(client));
+    }
+    else
+    {
+        ESP_LOGE(TAG, "Error perform http request %s", esp_err_to_name(err));
+        erase_flag();
+        erase_wifi_credentials_from_nvs();
+        esp_restart();
+    }
+    esp_http_client_cleanup(client);
+}
+
+char* create_json_string(int data[][4], int num_objects) {
+    char* json_string;
+    int string_length = 0;
+    int i, j;
+
+    // Calculate the length of the final JSON string
+    string_length += 2; // for the opening and closing square brackets
+    for (i = 0; i < num_objects; i++) {
+        string_length += 1; // for the opening curly brace
+        for (j = 0; j < 4; j++) {
+            string_length += 22; // for the field name and colon
+            string_length += 11; // for the maximum number of digits in an int
+            if (j < 4 - 1) {
+                string_length += 2; // for the comma and space
+            }
+        }
+        string_length += 2; // for the closing curly brace and comma
+    }
+    string_length--; // remove the last comma
+
+    // Allocate memory for the JSON string
+    json_string = malloc(string_length + 10); // +1 for the null terminator
+    strcpy(json_string, "{ \"name\" : \"BLE-PLANT\", \"interval\" : 5,\n\"data\" : ");
+
+    // Build the JSON string
+    strcat(json_string, "[");
+    for (i = 0; i < num_objects; i++) {
+        strcat(json_string, "{");
+        char field_name[50];
+        sprintf(field_name, "\"lightIntensity\":%d,", data[i][0]);
+        strcat(json_string, field_name);
+        sprintf(field_name, "\"temperature\":%d,", data[i][1]);
+        strcat(json_string, field_name);
+        sprintf(field_name, "\"humidity\":%d,", data[i][2]);
+        strcat(json_string, field_name);
+        sprintf(field_name, "\"moistureHumidity\":%d", data[i][3]);
+        strcat(json_string, field_name);
+        strcat(json_string, "}");
+        if (i < num_objects - 1) {
+            strcat(json_string, ", ");
+        }
+    }
+    strcat(json_string, "]}");
+
+    return json_string;
+}
+
+
+void send_data_to_server(int *data, int size) {
+
+    char* json_data = create_json_string(data , size);
+
+    printf("%s", json_data);
+
+
+    esp_http_client_config_t config = {
+        .url = "http://172.20.10.3:8080/waterit/api/device/history",
+        .method = HTTP_METHOD_POST,
+    };
+    esp_http_client_handle_t client = esp_http_client_init(&config);
+
+    esp_http_client_set_post_field(client, json_data, strlen(json_data));
+    esp_http_client_set_header(client, "Content-Type", "application/json");
+
+    esp_err_t err = esp_http_client_perform(client);
+    if (err == ESP_OK)
+    {
+        ESP_LOGI(TAG, "Status = %d, content_length = %d",
+                 esp_http_client_get_status_code(client),
+                 esp_http_client_get_content_length(client));
+    }
+    else
+    {
+        ESP_LOGE(TAG, "Error perform http request %s", esp_err_to_name(err));
+        //TODO
+    }
+    esp_http_client_cleanup(client);
 }
 
 void wifi_init_sta()
@@ -563,6 +845,12 @@ void wifi_init_sta()
     {
         ESP_LOGI(TAG, "connected to ap SSID:%s password:%s",
                  user_wifi_ssid, user_wifi_pass);
+
+        if (checkIsFirstConnection())
+        {
+            save_flag(1);
+            // activate_device();
+        }
     }
     else if (bits & WIFI_FAIL_BIT)
     {
@@ -677,12 +965,11 @@ static esp_err_t mqtt_event_handler_cb(esp_mqtt_event_handle_t event)
             printf("DATA=%.*s\r\n", event->data_len, event->data);
             if (strncmp(event->data, "true", 4) == 0)
             {
-                reset = true;
                 esp_mqtt_client_publish(client, "BLE-PLANT/reset", "false", 0, 1, 1);
-            }
-            else
-            {
-                reset = false;
+                erase_wifi_credentials_from_nvs();
+                erase_flag();
+                vTaskDelay(pdMS_TO_TICKS(5000));
+                esp_restart();
             }
             vTaskDelay(pdMS_TO_TICKS(2000));
         }
@@ -718,7 +1005,7 @@ static void mqtt_event_handler(void *handler_args, esp_event_base_t base, int32_
 static void mqtt_app_start(void)
 {
     esp_mqtt_client_config_t mqtt_cfg = {
-        .uri = "mqtt://192.168.0.81",
+        .uri = "mqtt://172.20.10.3",
         .port = 1883,
     };
     client = esp_mqtt_client_init(&mqtt_cfg);
@@ -901,6 +1188,33 @@ bool load_wifi_credentials_from_nvs(wifi_credentials_t *wifi_credentials)
     return true;
 }
 
+void init_bluetooth_connect_if_first_time(){
+    if (!load_wifi_credentials_from_nvs(&wifi_credentials))
+    {
+        printf("\nConnect device by ble with esp sending ssid and password to WIFI network that you want to connect\n");
+        try_to_connect_to_ble_and_exchange_data();
+        while (!were_ssid_given && !were_psk_given)
+        {
+            vTaskDelay(100);
+        }
+        vTaskDelete(xHandle);
+        xTaskCreate(&led_blink_connected, "LED_BLINK", 512, NULL, 5, &xHandle);
+        vTaskDelay(1000 / portTICK_PERIOD_MS);
+        vTaskDelete(xHandle);
+        printf("before save ssid: %s\n", user_wifi_ssid);
+        printf("before save pass: %s\n", user_wifi_pass);
+        strcpy(wifi_credentials.ssid, user_wifi_ssid);
+        strcpy(wifi_credentials.pass, user_wifi_pass);
+        save_wifi_credentials_to_nvs(wifi_credentials);
+        esp_restart();
+    }
+    else
+    {
+        were_ssid_given = true;
+        were_psk_given = true;
+    }
+}
+
 void try_to_connect_to_wifi()
 {
 
@@ -912,26 +1226,6 @@ void try_to_connect_to_wifi()
         ret = nvs_flash_init();
     }
     ESP_ERROR_CHECK(ret);
-
-    if (!load_wifi_credentials_from_nvs(&wifi_credentials))
-    {
-        printf("\nConnect device by ble with esp sending ssid and password to WIFI network that you want to connect\n");
-        try_to_connect_to_ble_and_exchange_data();
-        while (!were_ssid_given && !were_psk_given)
-        {
-            vTaskDelay(100);
-        }
-        printf("before save ssid: %s\n", user_wifi_ssid);
-        printf("before save pass: %s\n", user_wifi_pass);
-        strcpy(wifi_credentials.ssid, user_wifi_ssid);
-        strcpy(wifi_credentials.pass, user_wifi_pass);
-        save_wifi_credentials_to_nvs(wifi_credentials);
-    }
-    else
-    {
-        were_ssid_given = true;
-        were_psk_given = true;
-    }
 
     while (!were_ssid_given && !were_psk_given)
     {
@@ -962,8 +1256,6 @@ void setup_sleep()
 {
     // konfiguracja pinu wakeup
     esp_sleep_enable_ext0_wakeup(GPIO_NUM_0, 0); // 0 - stan niski, 1 - stan wysoki
-    // ustawienie czasu snu
-    // uint64_t time_in_us = 20e6; // 20 sekund
     printf("time in use: %lld", time_in_us);
     esp_sleep_enable_timer_wakeup(time_in_us);
 }
@@ -977,31 +1269,269 @@ void set_up_button()
         .intr_type = GPIO_INTR_ANYEDGE,
     };
     gpio_config(&button_config);
+
+    gpio_config_t wake_up_button_config = {
+        .pin_bit_mask = 1LL << WAKE_UP_BUTTON_GPIO,
+        .mode = GPIO_MODE_INPUT,
+        .pull_up_en = GPIO_PULLUP_ENABLE,
+        .intr_type = GPIO_INTR_ANYEDGE,
+    };
+    gpio_config(&wake_up_button_config);
+
+    gpio_config_t reset_button_config = {
+        .pin_bit_mask = 1LL << RESET_BUTTON_GPIO,
+        .mode = GPIO_MODE_INPUT,
+        .pull_up_en = GPIO_PULLUP_ENABLE,
+        .intr_type = GPIO_INTR_ANYEDGE,
+    };
+    gpio_config(&reset_button_config);
+}
+
+void onWakeup()
+{
+
+    nvs_handle handle;
+    esp_err_t err;
+    size_t wakeup_count = 0;
+    err = nvs_open("storage", NVS_READWRITE, &handle);
+    err = nvs_get_u32(handle, "data_count", &wakeup_count);
+    printf("wakeup_count: %d\n", wakeup_count);
+
+    // Jeśli minęło już 5 minut
+    if (wakeup_count >= 60 / 5)
+    {
+
+         try_to_connect_to_wifi();
+        // Odczyt danych z pamięci NVS
+        // err = nvs_open("storage", NVS_READONLY, &handle);
+        if (err != ESP_OK)
+        {
+            printf("Error opening NVS handle!\n");
+            return;
+        }
+
+        int data[wakeup_count][4];
+
+        // Odczytanie danych z wektora z pamięci NVS i wyświetlenie ich
+        for (size_t i = 0; i < wakeup_count; i++)
+        {
+            uint32_t temperature, humidity, light, moisture;
+            char key_temperature[30];
+            sprintf(key_temperature, "dt_%d", i);
+            err = nvs_get_u32(handle, key_temperature, &temperature);
+            if (err != ESP_OK)
+            {
+                printf("Error reading temperature from NVS!\n");
+            }
+            char key_humidity[30];
+            sprintf(key_humidity, "dh_%d", i);
+            err = nvs_get_u32(handle, key_humidity, &humidity);
+            if (err != ESP_OK)
+            {
+                printf("Error reading humidity from NVS!\n");
+            }
+            printf("Temperature: %f°C, Humidity: %f%%\n", (float)temperature / 100, (float)humidity / 100);
+
+            char key_light[30];
+            sprintf(key_light, "dl_%d", i);
+            err = nvs_get_u32(handle, key_light, &light);
+            if (err != ESP_OK)
+            {
+                printf("Error reading light from NVS!\n");
+            }
+            printf("Light intensity %d lx\n", light);
+
+            char key_moisture[30];
+            sprintf(key_moisture, "dm_%d", i);
+            err = nvs_get_u32(handle, key_moisture, &moisture);
+            if (err != ESP_OK)
+            {
+                printf("Error reading moisture from NVS!\n");
+            }
+            printf("Soil moisture %d%%\n", moisture);
+
+            data[i][0] = light;
+            data[i][1] = temperature;
+            data[i][2] = humidity;
+            data[i][3] = moisture;
+        }
+
+
+        send_data_to_server((int *)data, wakeup_count);
+
+
+        // Czyszczenie wektora danych w pamięci NVS
+        err = nvs_erase_key(handle, "data_count");
+        if (err != ESP_OK)
+        {
+            printf("Error erasing data count from NVS!\n");
+        }
+        for (size_t i = 0; i < wakeup_count; i++)
+        {
+            char key_temperature[32];
+            sprintf(key_temperature, "dt_%d", i);
+            char key_humidity[32];
+            sprintf(key_humidity, "dh_%d", i);
+            char key_light[32];
+            sprintf(key_light, "dl_%d", i);
+            char key_moisture[32];
+            sprintf(key_moisture, "dm_%d", i);
+            err = nvs_erase_key(handle, key_temperature);
+            if (err != ESP_OK)
+            {
+                printf("Error erasing temp from NVS!\n");
+            }
+            err = nvs_erase_key(handle, key_humidity);
+            if (err != ESP_OK)
+            {
+                printf("Error erasing humidity from NVS!\n");
+            }
+            err = nvs_erase_key(handle, key_light);
+            if (err != ESP_OK)
+            {
+                printf("Error erasing light from NVS!\n");
+            }
+            err = nvs_erase_key(handle, key_moisture);
+            if (err != ESP_OK)
+            {
+                printf("Error erasing moisture from NVS!\n");
+            }
+        }
+        nvs_commit(handle);
+        nvs_close(handle);
+
+        wakeup_count = 0;
+    }
+}
+
+void save()
+{
+    // Pobranie danych z czujnika DHT22
+    float temperature;
+    float humidity;
+    uint16_t light;
+    float moisture;
+
+    turn_on_bh1750();
+    esp_err_t ret = bh1750_init(I2C_NUM_0);
+    if (ret != ESP_OK)
+    {
+        printf("BH1750 init failed: %d\n", ret);
+    }
+    vTaskDelay(pdMS_TO_TICKS(10));
+
+    ret = bh1750_measure(I2C_NUM_0, &light, BH1750_CONTINUOUS_HIGH_RES_MODE);
+    if(ret == ESP_OK) {
+        printf("Light intensity: %d lx\n", light);
+    } else {
+        printf("error while init bh1750");
+    }
+
+    uint32_t adc_reading = adc1_get_raw(YL_69_ADC_CHANNEL);
+    // Przelicznie wartości na wilgotność gleby
+    moisture = (adc_reading / 4095.0) * 100;
+    printf("Soil moisture: %.2f%%\n", moisture);
+
+    if (dht_read_float_data(SENSOR_TYPE, CONFIG_EXAMPLE_DATA_GPIO, &humidity, &temperature) == ESP_OK)
+    {
+        printf("Humidity: %.1f%% Temp: %.1fC\n", humidity, temperature);
+    }
+    else
+        printf("Could not read data from sensor\n");
+
+    printf("moisture before fixed: %f", moisture);
+    int32_t temperature_fixed = (int32_t)(temperature * 100);
+    int32_t humidity_fixed = (int32_t)(humidity * 100);
+    int32_t light_fixed = (int32_t)(light * 100);
+    int32_t moisture_fixed = (int32_t)(moisture *100);
+    printf("fixed moisture %d", moisture_fixed);
+
+    // Zapis nowych danych do pamięci NVS
+    nvs_handle handle;
+    esp_err_t err = nvs_open("storage", NVS_READWRITE, &handle);
+    if (err != ESP_OK)
+    {
+        printf("Error opening NVS handle!\n");
+        return;
+    }
+
+    size_t data_count = 0;
+    err = nvs_get_u32(handle, "data_count", &data_count);
+    if (err != ESP_OK)
+    {
+        data_count = 0;
+    }
+
+    char key_temperature[30];
+    sprintf(key_temperature, "dt_%d", data_count);
+    char key_humidity[32];
+    sprintf(key_humidity, "dh_%d", data_count);
+    char key_light[32];
+    sprintf(key_light, "dl_%d", data_count);
+    char key_moisture[32];
+    sprintf(key_moisture, "dm_%d", data_count);
+
+    err = nvs_set_u32(handle, key_temperature, temperature_fixed);
+    if (err != ESP_OK)
+    {
+        printf("Error saving temperature to NVS!\n");
+    }
+    err = nvs_set_u32(handle, key_humidity, humidity_fixed);
+    if (err != ESP_OK)
+    {
+        printf("Error saving humidity to NVS!\n");
+    }
+    err = nvs_set_u32(handle, key_light, light_fixed);
+    if (err != ESP_OK)
+    {
+        printf("Error saving light to NVS!\n");
+    }
+    err = nvs_set_u32(handle, key_moisture, moisture_fixed);
+    if (err != ESP_OK)
+    {
+        printf("Error saving moisture to NVS!\n");
+    }
+    err = nvs_set_u32(handle, "data_count", ++data_count);
+    if (err != ESP_OK)
+    {
+        printf("Error updating data count in NVS!\n");
+    }
+    printf("%d\n", data_count);
+
+    nvs_commit(handle);
+    nvs_close(handle);
+    esp_sleep_enable_ext0_wakeup(WAKE_UP_BUTTON_GPIO, 0);
+
+    // Uśpienie płytki na 5 sekund
+    esp_sleep_enable_timer_wakeup(5000000);
+    esp_deep_sleep_start();
 }
 
 void app_main(void)
 {
+    // Initialize NVS
+    esp_err_t err = nvs_flash_init();
+    if (err == ESP_ERR_NVS_NO_FREE_PAGES)
+    {
+        // ESP_ERROR_CHECK(nvs_flash_erase());
+        err = nvs_flash_init();
+    }
+    ESP_ERROR_CHECK(err);
+
+    led_blink_setup();
     set_up_button();
     setup();
     ESP_LOGI(TAG, "[APP] Startup..");
     ESP_LOGI(TAG, "[APP] Free memory: %d bytes", esp_get_free_heap_size());
     ESP_LOGI(TAG, "[APP] IDF version: %s", esp_get_idf_version());
 
-    esp_log_level_set("*", ESP_LOG_INFO);
-    esp_log_level_set("MQTT_CLIENT", ESP_LOG_VERBOSE);
-    esp_log_level_set("MQTT_EXAMPLE", ESP_LOG_VERBOSE);
-    esp_log_level_set("TRANSPORT_TCP", ESP_LOG_VERBOSE);
-    esp_log_level_set("TRANSPORT_SSL", ESP_LOG_VERBOSE);
-    esp_log_level_set("TRANSPORT", ESP_LOG_VERBOSE);
-    esp_log_level_set("OUTBOX", ESP_LOG_VERBOSE);
-
-    // i2c_config_t i2c_config = {
-    //     .mode = I2C_MODE_MASTER,
-    //     .sda_io_num = 21,
-    //     .scl_io_num = 22,
-    //     .sda_pullup_en = GPIO_PULLUP_ENABLE,
-    //     .scl_pullup_en = GPIO_PULLUP_ENABLE,
-    //     .master.clk_speed = 100000};
+    // esp_log_level_set("*", ESP_LOG_INFO);
+    // esp_log_level_set("MQTT_CLIENT", ESP_LOG_VERBOSE);
+    // esp_log_level_set("MQTT_EXAMPLE", ESP_LOG_VERBOSE);
+    // esp_log_level_set("TRANSPORT_TCP", ESP_LOG_VERBOSE);
+    // esp_log_level_set("TRANSPORT_SSL", ESP_LOG_VERBOSE);
+    // esp_log_level_set("TRANSPORT", ESP_LOG_VERBOSE);
+    // esp_log_level_set("OUTBOX", ESP_LOG_VERBOSE);
 
     i2c_config_t conf;
     conf.mode = I2C_MODE_MASTER;
@@ -1015,24 +1545,12 @@ void app_main(void)
                        I2C_MASTER_RX_BUF_DISABLE,
                        I2C_MASTER_TX_BUF_DISABLE, 0);
 
-    // i2c_param_config(I2C_NUM_0, &i2c_config);
-    // i2c_driver_install(I2C_NUM_0, I2C_MODE_MASTER, 0, 0, 0);
-
-    // ESP_ERROR_CHECK(nvs_flash_init());
-    // ESP_ERROR_CHECK(esp_netif_init());
-    // ESP_ERROR_CHECK(esp_event_loop_create_default());
-
-    /* This helper function configures Wi-Fi or Ethernet, as selected in menuconfig.
-     * Read "Establishing Wi-Fi or Ethernet Connection" section in
-     * examples/protocols/README.md for more information about this function.
-     */
-    // wifi_init_sta();
-
-    // mqtt_app_start();
     i2cdev_init(); // Init library
-    setup_sleep();
-    try_to_connect_to_wifi();
+    init_bluetooth_connect_if_first_time();
 
-    // xTaskCreate(yl69_task, "yl69_task", 4*1024, NULL, 1, NULL);
-    xTaskCreatePinnedToCore(test, "test", configMINIMAL_STACK_SIZE * 5, NULL, 5, NULL, APP_CPU_NUM);
+    // setup_sleep();
+    onWakeup();
+    save();
+
+    // xTaskCreatePinnedToCore(test, "test", configMINIMAL_STACK_SIZE * 5, NULL, 5, NULL, APP_CPU_NUM);
 }
