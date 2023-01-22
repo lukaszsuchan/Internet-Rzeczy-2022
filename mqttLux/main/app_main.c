@@ -98,15 +98,17 @@
 #define BH1750_SENSOR_ADDR 0x23     /*!< BH1750 sensor address */
 
 #define BUTTON_GPIO 5
-#define RESET_BUTTON_GPIO 18
-#define WAKE_UP_BUTTON_GPIO 2
+#define RESET_BUTTON_GPIO 13
+#define WAKE_UP_BUTTON_GPIO 15
 #define DELAY_TIME_MS 10000
 #define LED_PIN 2
 
 bool is_low = false;
 bool reset = false;
 bool not_establised = true;
-uint64_t time_in_us = 20e6;
+bool wake_up = false;
+uint8_t time_in_us = 180;
+uint8_t time_to_measure = 15;
 
 #define YL_69_ADC_CHANNEL ADC1_CHANNEL_0
 
@@ -193,8 +195,8 @@ void led_blink()
         gpio_set_level(LED_PIN, 1);
         vTaskDelay(1000 / portTICK_PERIOD_MS);
 
-    //     // ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
-    //     // vTaskDelete(xHandle);
+        //     // ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
+        //     // vTaskDelete(xHandle);
     }
 }
 
@@ -572,7 +574,7 @@ static void event_handler(void *arg, esp_event_base_t event_base,
                 ESP_LOGI(TAG, "ap no found");
                 // xTaskCreate(&led_blink, "LED_BLINK", 512, NULL, 5, &xHandle);
                 esp_sleep_enable_timer_wakeup(time_in_us);
-                printf("goigo to sleep for %lld seconds\n", time_in_us);
+                printf("goigo to sleep for %d seconds\n", time_in_us);
                 vTaskDelay(100);
                 esp_deep_sleep_start();
             }
@@ -701,19 +703,23 @@ void activate_device()
     esp_http_client_cleanup(client);
 }
 
-char* create_json_string(int data[][4], int num_objects) {
-    char* json_string;
+char *create_json_string(int data[][4], int num_objects)
+{
+    char *json_string;
     int string_length = 0;
     int i, j;
 
     // Calculate the length of the final JSON string
     string_length += 2; // for the opening and closing square brackets
-    for (i = 0; i < num_objects; i++) {
+    for (i = 0; i < num_objects; i++)
+    {
         string_length += 1; // for the opening curly brace
-        for (j = 0; j < 4; j++) {
+        for (j = 0; j < 4; j++)
+        {
             string_length += 22; // for the field name and colon
             string_length += 11; // for the maximum number of digits in an int
-            if (j < 4 - 1) {
+            if (j < 4 - 1)
+            {
                 string_length += 2; // for the comma and space
             }
         }
@@ -722,12 +728,27 @@ char* create_json_string(int data[][4], int num_objects) {
     string_length--; // remove the last comma
 
     // Allocate memory for the JSON string
-    json_string = malloc(string_length + 10); // +1 for the null terminator
-    strcpy(json_string, "{ \"name\" : \"BLE-PLANT\", \"interval\" : 5,\n\"data\" : ");
+    json_string = malloc(string_length + 10);
+    char *header;
+    header = malloc(100);
+    nvs_handle handle;
+    esp_err_t err = nvs_open("storage", NVS_READWRITE, &handle);
+    uint32_t measurement_interval;
+    err = nvs_get_u32(handle, "measure-interval", &measurement_interval);
+    if (err != ESP_OK)
+    {
+        // handle error
+    }
+
+    nvs_close(handle);
+
+    sprintf(header, "{ \"name\" : \"BLE-PLANT\", \"interval\" : %d,\n\"data\" : ", measurement_interval); // +1 for the null terminator
+    strcpy(json_string, header);
 
     // Build the JSON string
     strcat(json_string, "[");
-    for (i = 0; i < num_objects; i++) {
+    for (i = 0; i < num_objects; i++)
+    {
         strcat(json_string, "{");
         char field_name[50];
         sprintf(field_name, "\"lightIntensity\":%d,", data[i][0]);
@@ -739,7 +760,8 @@ char* create_json_string(int data[][4], int num_objects) {
         sprintf(field_name, "\"moistureHumidity\":%d", data[i][3]);
         strcat(json_string, field_name);
         strcat(json_string, "}");
-        if (i < num_objects - 1) {
+        if (i < num_objects - 1)
+        {
             strcat(json_string, ", ");
         }
     }
@@ -748,13 +770,12 @@ char* create_json_string(int data[][4], int num_objects) {
     return json_string;
 }
 
+void send_data_to_server(int *data, int size)
+{
 
-void send_data_to_server(int *data, int size) {
-
-    char* json_data = create_json_string(data , size);
+    char *json_data = create_json_string(data, size);
 
     printf("%s", json_data);
-
 
     esp_http_client_config_t config = {
         .url = "http://172.20.10.3:8080/waterit/api/device/history",
@@ -775,7 +796,7 @@ void send_data_to_server(int *data, int size) {
     else
     {
         ESP_LOGE(TAG, "Error perform http request %s", esp_err_to_name(err));
-        //TODO
+        // TODO
     }
     esp_http_client_cleanup(client);
 }
@@ -901,6 +922,9 @@ static esp_err_t mqtt_event_handler_cb(esp_mqtt_event_handle_t event)
         msg_id = esp_mqtt_client_subscribe(client, "esp32/interval", 1);
         ESP_LOGI(TAG, "sent subscribe successful, msg_id=%d", msg_id);
 
+        msg_id = esp_mqtt_client_subscribe(client, "esp32/measurement-interval", 1);
+        ESP_LOGI(TAG, "sent subscribe successful, msg_id=%d", msg_id);
+
         msg_id = esp_mqtt_client_subscribe(client, "BLE-PLANT/reset", 1);
         ESP_LOGI(TAG, "sent subscribe successful, msg_id=%d", msg_id);
 
@@ -956,6 +980,43 @@ static esp_err_t mqtt_event_handler_cb(esp_mqtt_event_handle_t event)
             printf("time in use: %d\n", interval);
             esp_sleep_enable_timer_wakeup(time_in_us);
             vTaskDelay(pdMS_TO_TICKS(2000));
+            nvs_handle my_handle;
+            esp_err_t err = nvs_open("storage", NVS_READWRITE, &my_handle);
+            if (err != ESP_OK)
+            {
+                // handle error
+            }
+            err = nvs_set_u32(my_handle, "push-interval", interval);
+            if (err != ESP_OK)
+            {
+                // handle error
+            }
+            err = nvs_commit(my_handle);
+            nvs_close(my_handle);
+        }
+        if (strcmp(event->topic, (char *)"esp32/measurement-interval") == 0)
+        {
+            printf("działa\n");
+            printf("=%.*s\r \n", event->data_len, event->data);
+            printf("TOPIC=%.*s\r\n", event->topic_len, event->topic);
+            printf("DATA=%.*s\r\n", event->data_len, event->data);
+            int interval = atoi(event->data);
+            time_in_us = interval * 1000000;
+            printf("time in use: %d\n", interval);
+            esp_sleep_enable_timer_wakeup(time_in_us);
+            nvs_handle my_handle;
+            esp_err_t err = nvs_open("storage", NVS_READWRITE, &my_handle);
+            if (err != ESP_OK)
+            {
+                // handle error
+            }
+            err = nvs_set_u32(my_handle, "measure-interval", interval);
+            if (err != ESP_OK)
+            {
+                // handle error
+            }
+            err = nvs_commit(my_handle);
+            nvs_close(my_handle);
         }
         if (strncmp(event->topic, (char *)"BLE-PLANT/reset", 16) == 0)
         {
@@ -967,8 +1028,9 @@ static esp_err_t mqtt_event_handler_cb(esp_mqtt_event_handle_t event)
             {
                 esp_mqtt_client_publish(client, "BLE-PLANT/reset", "false", 0, 1, 1);
                 erase_wifi_credentials_from_nvs();
+                nvs_flash_erase();
                 erase_flag();
-                vTaskDelay(pdMS_TO_TICKS(5000));
+                vTaskDelay(pdMS_TO_TICKS(2000));
                 esp_restart();
             }
             vTaskDelay(pdMS_TO_TICKS(2000));
@@ -1097,8 +1159,10 @@ void test(void *pvParameters)
         esp_mqtt_client_publish(client, "BLE-PLANT/moisture", moisture_char, 0, 1, 1);
         vTaskDelay(pdMS_TO_TICKS(2000));
         turn_off_bh1750();
-        uint16_t seconds = time_in_us / 1e6;
-        printf("goigo to sleep for %d seconds\n", seconds);
+        esp_sleep_enable_ext1_wakeup((1ULL << WAKE_UP_BUTTON_GPIO) | (1ULL << RESET_BUTTON_GPIO), ESP_EXT1_WAKEUP_ANY_HIGH);
+
+        // Uśpienie płytki na 5 sekund
+        esp_sleep_enable_timer_wakeup(5000000);
         vTaskDelay(pdMS_TO_TICKS(150));
         esp_deep_sleep_start();
     }
@@ -1188,7 +1252,8 @@ bool load_wifi_credentials_from_nvs(wifi_credentials_t *wifi_credentials)
     return true;
 }
 
-void init_bluetooth_connect_if_first_time(){
+void init_bluetooth_connect_if_first_time()
+{
     if (!load_wifi_credentials_from_nvs(&wifi_credentials))
     {
         printf("\nConnect device by ble with esp sending ssid and password to WIFI network that you want to connect\n");
@@ -1206,6 +1271,24 @@ void init_bluetooth_connect_if_first_time(){
         strcpy(wifi_credentials.ssid, user_wifi_ssid);
         strcpy(wifi_credentials.pass, user_wifi_pass);
         save_wifi_credentials_to_nvs(wifi_credentials);
+        nvs_handle my_handle;
+        esp_err_t err = nvs_open("storage", NVS_READWRITE, &my_handle);
+        if (err != ESP_OK)
+        {
+            // handle error
+        }
+        err = nvs_set_u32(my_handle, "push-interval", time_in_us);
+        if (err != ESP_OK)
+        {
+            // handle error
+        }
+        err = nvs_set_u32(my_handle, "measure-interval", time_to_measure);
+        if (err != ESP_OK)
+        {
+            // handle error
+        }
+        err = nvs_commit(my_handle);
+        nvs_close(my_handle);
         esp_restart();
     }
     else
@@ -1256,7 +1339,7 @@ void setup_sleep()
 {
     // konfiguracja pinu wakeup
     esp_sleep_enable_ext0_wakeup(GPIO_NUM_0, 0); // 0 - stan niski, 1 - stan wysoki
-    printf("time in use: %lld", time_in_us);
+    printf("time in use: %d", time_in_us);
     esp_sleep_enable_timer_wakeup(time_in_us);
 }
 
@@ -1297,11 +1380,25 @@ void onWakeup()
     err = nvs_get_u32(handle, "data_count", &wakeup_count);
     printf("wakeup_count: %d\n", wakeup_count);
 
+    uint32_t push_interval;
+    err = nvs_get_u32(handle, "push-interval", &push_interval);
+    if (err != ESP_OK)
+    {
+        // handle error
+    }
+
+    uint32_t measurement_interval;
+    err = nvs_get_u32(handle, "measure-interval", &measurement_interval);
+    if (err != ESP_OK)
+    {
+        // handle error
+    }
+
     // Jeśli minęło już 5 minut
-    if (wakeup_count >= 60 / 5)
+    if (wakeup_count >= push_interval / measurement_interval)
     {
 
-         try_to_connect_to_wifi();
+        try_to_connect_to_wifi();
         // Odczyt danych z pamięci NVS
         // err = nvs_open("storage", NVS_READONLY, &handle);
         if (err != ESP_OK)
@@ -1356,9 +1453,7 @@ void onWakeup()
             data[i][3] = moisture;
         }
 
-
         send_data_to_server((int *)data, wakeup_count);
-
 
         // Czyszczenie wektora danych w pamięci NVS
         err = nvs_erase_key(handle, "data_count");
@@ -1421,9 +1516,12 @@ void save()
     vTaskDelay(pdMS_TO_TICKS(10));
 
     ret = bh1750_measure(I2C_NUM_0, &light, BH1750_CONTINUOUS_HIGH_RES_MODE);
-    if(ret == ESP_OK) {
+    if (ret == ESP_OK)
+    {
         printf("Light intensity: %d lx\n", light);
-    } else {
+    }
+    else
+    {
         printf("error while init bh1750");
     }
 
@@ -1443,7 +1541,7 @@ void save()
     int32_t temperature_fixed = (int32_t)(temperature * 100);
     int32_t humidity_fixed = (int32_t)(humidity * 100);
     int32_t light_fixed = (int32_t)(light * 100);
-    int32_t moisture_fixed = (int32_t)(moisture *100);
+    int32_t moisture_fixed = (int32_t)(moisture * 100);
     printf("fixed moisture %d", moisture_fixed);
 
     // Zapis nowych danych do pamięci NVS
@@ -1498,23 +1596,50 @@ void save()
     }
     printf("%d\n", data_count);
 
+    uint32_t measurement_interval;
+    err = nvs_get_u32(handle, "measure-interval", &measurement_interval);
+    if (err != ESP_OK)
+    {
+        // handle error
+    }
+
     nvs_commit(handle);
     nvs_close(handle);
-    esp_sleep_enable_ext0_wakeup(WAKE_UP_BUTTON_GPIO, 0);
+    esp_sleep_enable_ext1_wakeup((1ULL << WAKE_UP_BUTTON_GPIO) | (1ULL << RESET_BUTTON_GPIO), 0);
+    // esp_sleep_enable_ext0_wakeup(WAKE_UP_BUTTON_GPIO, 0);
 
     // Uśpienie płytki na 5 sekund
-    esp_sleep_enable_timer_wakeup(5000000);
+    esp_sleep_enable_timer_wakeup(measurement_interval * 1e6);
     esp_deep_sleep_start();
+}
+
+void task_wake_up_button(void *pvParameter)
+{
+    for (;;)
+    {
+        if (gpio_get_level(WAKE_UP_BUTTON_GPIO) == 0)
+        {
+            wake_up = true;
+        }
+
+        vTaskDelay(10);
+    }
 }
 
 void app_main(void)
 {
+    xTaskCreatePinnedToCore(task_wake_up_button, "wake-up", configMINIMAL_STACK_SIZE * 5, NULL, 5, NULL, APP_CPU_NUM);
     // Initialize NVS
     esp_err_t err = nvs_flash_init();
     if (err == ESP_ERR_NVS_NO_FREE_PAGES)
     {
         // ESP_ERROR_CHECK(nvs_flash_erase());
         err = nvs_flash_init();
+    }
+    if (reset)
+    {
+        nvs_flash_erase();
+        esp_restart();
     }
     ESP_ERROR_CHECK(err);
 
@@ -1547,10 +1672,20 @@ void app_main(void)
 
     i2cdev_init(); // Init library
     init_bluetooth_connect_if_first_time();
+    printf("%s", wake_up ? "true" : "false");
+    if (wake_up)
+    {
+        printf("wake-up via button");
+        try_to_connect_to_wifi();
+        xTaskCreatePinnedToCore(test, "test", configMINIMAL_STACK_SIZE * 5, NULL, 5, NULL, APP_CPU_NUM);
+    }
+    else
+    {
+        onWakeup();
+        save();
+    }
 
     // setup_sleep();
-    onWakeup();
-    save();
 
     // xTaskCreatePinnedToCore(test, "test", configMINIMAL_STACK_SIZE * 5, NULL, 5, NULL, APP_CPU_NUM);
 }
