@@ -71,7 +71,5 @@
 /home/lsuchan/Dokumenty/studia/iot/Internet-Rzeczy-2022/mqttLux/build/esp-idf/ulp/libulp.a
 /home/lsuchan/Dokumenty/studia/iot/Internet-Rzeczy-2022/mqttLux/build/esp-idf/wifi_provisioning/libwifi_provisioning.a
 /home/lsuchan/Dokumenty/studia/iot/Internet-Rzeczy-2022/mqttLux/build/esp-idf/main/libmain.a
-/home/lsuchan/Dokumenty/studia/iot/Internet-Rzeczy-2022/mqttLux/build/esp-idf/i2cdev/libi2cdev.a
-/home/lsuchan/Dokumenty/studia/iot/Internet-Rzeczy-2022/mqttLux/build/esp-idf/bh1750/libbh1750.a
 /home/lsuchan/Dokumenty/studia/iot/Internet-Rzeczy-2022/mqttLux/build/esp-idf/dht/libdht.a
 /home/lsuchan/Dokumenty/studia/iot/Internet-Rzeczy-2022/mqttLux/build/esp-idf/esp32-yl69/libesp32-yl69.a

@@ -123,8 +123,6 @@ if(NOT CMAKE_INSTALL_LOCAL_ONLY)
   include("/home/lsuchan/Dokumenty/studia/iot/Internet-Rzeczy-2022/mqttLux/build/esp-idf/wifi_provisioning/cmake_install.cmake")
   include("/home/lsuchan/Dokumenty/studia/iot/Internet-Rzeczy-2022/mqttLux/build/esp-idf/main/cmake_install.cmake")
   include("/home/lsuchan/Dokumenty/studia/iot/Internet-Rzeczy-2022/mqttLux/build/esp-idf/esp_idf_lib_helpers/cmake_install.cmake")
-  include("/home/lsuchan/Dokumenty/studia/iot/Internet-Rzeczy-2022/mqttLux/build/esp-idf/i2cdev/cmake_install.cmake")
-  include("/home/lsuchan/Dokumenty/studia/iot/Internet-Rzeczy-2022/mqttLux/build/esp-idf/bh1750/cmake_install.cmake")
   include("/home/lsuchan/Dokumenty/studia/iot/Internet-Rzeczy-2022/mqttLux/build/esp-idf/dht/cmake_install.cmake")
   include("/home/lsuchan/Dokumenty/studia/iot/Internet-Rzeczy-2022/mqttLux/build/esp-idf/esp32-yl69/cmake_install.cmake")
 

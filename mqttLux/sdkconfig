@@ -1352,13 +1352,6 @@ CONFIG_WPA_MBEDTLS_CRYPTO=y
 # CONFIG_WPA_MBO_SUPPORT is not set
 # CONFIG_WPA_DPP_SUPPORT is not set
 # end of Supplicant
-
-#
-# I2C
-#
-CONFIG_I2CDEV_TIMEOUT=1000
-# CONFIG_I2CDEV_NOLOCK is not set
-# end of I2C
 # end of Component config
 
 #

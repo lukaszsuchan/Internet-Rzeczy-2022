@@ -9,6 +9,13 @@
     "files.associations": {
         "adc.h": "c",
         "esp_sleep.h": "c",
-        "*.inc": "c"
+        "*.inc": "c",
+        "bitset": "c",
+        "memory": "c",
+        "random": "c",
+        "future": "c",
+        "optional": "c",
+        "*.ipp": "c",
+        "ble_svc_gap.h": "c"
     }
 }

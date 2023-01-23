@@ -19646,37 +19646,6 @@
                 "id": "component-config-supplicant",
                 "title": "Supplicant",
                 "type": "menu"
-            },
-            {
-                "children": [
-                    {
-                        "children": [],
-                        "depends_on": null,
-                        "help": null,
-                        "id": "I2CDEV_TIMEOUT",
-                        "name": "I2CDEV_TIMEOUT",
-                        "range": [
-                            10,
-                            5000
-                        ],
-                        "title": "I2C transaction timeout, milliseconds",
-                        "type": "int"
-                    },
-                    {
-                        "children": [],
-                        "depends_on": null,
-                        "help": "Attention! After enabling this option, all I2C device\ndrivers will become non-thread safe. \nUse this option if you need to access your I2C devices\nfrom interrupt handlers.",
-                        "id": "I2CDEV_NOLOCK",
-                        "name": "I2CDEV_NOLOCK",
-                        "range": null,
-                        "title": "Disable the use of mutexes",
-                        "type": "bool"
-                    }
-                ],
-                "depends_on": null,
-                "id": "component-config-i2c",
-                "title": "I2C",
-                "type": "menu"
             }
         ],
         "depends_on": null,
