@@ -1830,8 +1830,6 @@ void app_main(void)
         led_blink_wake_up();
         try_to_connect_to_wifi();
         led_blink_delete();
-        printf("jak?");
-        delete_device();
         nvs_flash_erase();
         esp_restart();
     }
