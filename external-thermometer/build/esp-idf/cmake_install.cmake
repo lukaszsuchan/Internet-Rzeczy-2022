@@ -122,6 +122,8 @@ if(NOT CMAKE_INSTALL_LOCAL_ONLY)
   include("/home/lsuchan/Dokumenty/studia/iot/Internet-Rzeczy-2022/external-thermometer/build/esp-idf/ulp/cmake_install.cmake")
   include("/home/lsuchan/Dokumenty/studia/iot/Internet-Rzeczy-2022/external-thermometer/build/esp-idf/wifi_provisioning/cmake_install.cmake")
   include("/home/lsuchan/Dokumenty/studia/iot/Internet-Rzeczy-2022/external-thermometer/build/esp-idf/main/cmake_install.cmake")
+  include("/home/lsuchan/Dokumenty/studia/iot/Internet-Rzeczy-2022/external-thermometer/build/esp-idf/esp_idf_lib_helpers/cmake_install.cmake")
+  include("/home/lsuchan/Dokumenty/studia/iot/Internet-Rzeczy-2022/external-thermometer/build/esp-idf/dht/cmake_install.cmake")
 
 endif()
 

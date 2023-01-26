@@ -22,6 +22,9 @@
 #include "nvs.h"
 #include "nvs_flash.h"
 
+#include "dht.h"
+#include "driver/adc.h"
+
 #include "esp_bt.h"
 #include "esp_gap_ble_api.h"
 #include "esp_gattc_api.h"
@@ -32,11 +35,24 @@
 #include "freertos/FreeRTOS.h"
 
 #define GATTC_TAG "GATTC_DEMO"
-#define REMOTE_SERVICE_UUID 0x180A
+#define REMOTE_SERVICE_UUID 0x180B
 #define REMOTE_NOTIFY_CHAR_UUID 0xDEB0
 #define PROFILE_NUM 1
 #define PROFILE_A_APP_ID 0
 #define INVALID_HANDLE 0
+
+#if defined(CONFIG_EXAMPLE_TYPE_DHT11)
+#define SENSOR_TYPE DHT_TYPE_DHT11
+#endif
+#if defined(CONFIG_EXAMPLE_TYPE_AM2301)
+#define SENSOR_TYPE DHT_TYPE_AM2301
+#endif
+#if defined(CONFIG_EXAMPLE_TYPE_SI7021)
+#define SENSOR_TYPE DHT_TYPE_SI7021
+#endif
+
+float temperature;
+float humidity;
 
 static const char remote_device_name[] = "BLE-PLANT";
 static bool connect = false;
@@ -227,21 +243,26 @@ static void gattc_profile_event_handler(esp_gattc_cb_event_t event, esp_gatt_if_
                     {
                         gl_profile_tab[PROFILE_A_APP_ID].char_handle = char_elem_result[0].char_handle;
                         ESP_LOGI(GATTC_TAG, "Characteristic UUID16: %x", char_elem_result[0].uuid.uuid.uuid16);
-                        double fixed_temp = 0.4;
+                        if (dht_read_float_data(SENSOR_TYPE, CONFIG_EXAMPLE_DATA_GPIO, &humidity, &temperature) == ESP_OK)
+                        {
+                            printf("Humidity: %.1f%% Temp: %.1fC\n", humidity, temperature);
+                        }
+                        else
+                            printf("Could not read data from sensor\n");
+                        float fixed_temp = temperature;
                         uint8_t temp_int = fixed_temp * 10;
                         uint8_t first_number = temp_int / 100;
                         uint8_t second_number = temp_int % 100 / 10;
                         uint8_t third_number = temp_int % 100 % 10;
-                        char first_ascii_number = first_number + '0'; 
+                        char first_ascii_number = first_number + '0';
                         uint8_t final_first_ascii_number = (uint8_t)first_ascii_number;
-                        char second_ascii_number = second_number + '0'; 
+                        char second_ascii_number = second_number + '0';
                         uint8_t final_second_ascii_number = (uint8_t)second_ascii_number;
-                        char third_ascii_number = third_number + '0'; 
+                        char third_ascii_number = third_number + '0';
                         uint8_t final_third_ascii_number = (uint8_t)third_ascii_number;
 
-
                         uint8_t data_to_send[] = {final_first_ascii_number, final_second_ascii_number, final_third_ascii_number};
-                        //uint8_t data_to_send = 52;
+                        // uint8_t data_to_send = 52;
                         esp_ble_gattc_write_char(gattc_if, gl_profile_tab[PROFILE_A_APP_ID].conn_id, char_elem_result[0].char_handle, sizeof(data_to_send), &data_to_send, ESP_GATT_WRITE_TYPE_RSP, ESP_GATT_AUTH_REQ_NONE);
                     }
                 }

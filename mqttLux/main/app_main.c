@@ -114,6 +114,7 @@ uint32_t time_to_measure = 15;
 
 volatile char *user_wifi_ssid = "ssid";
 volatile char *user_wifi_pass = "password";
+volatile char *user_ip_server = "ip_server";
 
 typedef struct
 {
@@ -125,6 +126,7 @@ wifi_credentials_t wifi_credentials;
 
 // ble config
 #define DEVICE_INFO_SERVICE_UUID 0x180A
+#define DEVICE_TEMP_SERVICE_UUID 0x180B
 
 #define MANUFACTURER_NAME_CHAR 0xFEF4
 
@@ -325,12 +327,11 @@ static int device_write_ip_server(uint8_t conn_handle, uint8_t attr_handle, stru
     printf("incoming message: %s\n", incoming_data_psk);
     cJSON *payload = cJSON_Parse(incoming_data_psk);
     // cJSON *ssid = cJSON_GetObjectItem(payload, "SSID");
-    cJSON *psk = cJSON_GetObjectItem(payload, "P");
+    cJSON *psk = cJSON_GetObjectItem(payload, "I");
     // user_wifi_ssid = ssid->valuestring;
-    user_wifi_pass = psk->valuestring;
+    user_ip_server = psk->valuestring;
     // user_wifi_pass = incoming_data_psk;
-    printf("WiFi Credentials PSK: %s\n", user_wifi_pass);
-    were_psk_given = true;
+    printf("Ip Server: %s\n", user_ip_server);
     return 0;
 }
 static int device_write_external_temperature(uint8_t conn_handle, uint8_t attr_handle, struct ble_gatt_access_ctxt *ctxt_temp, void *arg)
@@ -368,13 +369,18 @@ static const struct ble_gatt_svc_def gatt_svcs[] = {
           {.uuid = BLE_UUID16_DECLARE(IP_SERVER),
           .flags = BLE_GATT_CHR_F_WRITE,
           .access_cb = device_write_ip_server},
-          {.uuid = BLE_UUID16_DECLARE(EXTERNAL_TEMPERATURE),
+         {0}}},
+    {.type = BLE_GATT_SVC_TYPE_PRIMARY,
+     .uuid = BLE_UUID16_DECLARE(DEVICE_TEMP_SERVICE_UUID),
+     .characteristics = (struct ble_gatt_chr_def[]){
+         {.uuid = BLE_UUID16_DECLARE(EXTERNAL_TEMPERATURE),
           .flags = BLE_GATT_CHR_F_WRITE,
           .access_cb = device_write_external_temperature},
           {.uuid = BLE_UUID16_DECLARE(EXTERNAL_HUMIDITY),
           .flags = BLE_GATT_CHR_F_WRITE,
           .access_cb = device_write_external_humidity},
-         {0}}},
+         {0}
+     }},
     {0}};
 
 static int ble_gap_event(struct ble_gap_event *event, void *arg)
@@ -806,7 +812,8 @@ void confirm_device() {
     else
     {
         ESP_LOGE(TAG, "Error perform http request %s", esp_err_to_name(err));
-        // TODO
+        erase_wifi_credentials_from_nvs();
+        esp_restart();
     }
     esp_http_client_cleanup(client_delete);
 }
@@ -1450,8 +1457,9 @@ void init_bluetooth_connect_if_first_time()
         err = nvs_commit(my_handle);
         nvs_close(my_handle);
         try_to_connect_to_wifi();
+        vTaskDelay(1000);
         confirm_device();
-        vTaskDelay(2000);
+        vTaskDelay(1000);
         esp_restart();
     }
     else
