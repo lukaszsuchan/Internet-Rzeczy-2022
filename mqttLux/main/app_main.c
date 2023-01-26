@@ -1311,6 +1311,70 @@ void test(void *pvParameters)
     }
 }
 
+void testOnWakeUp()
+{
+    turn_on_bh1750();
+    esp_err_t ret = bh1750_init(I2C_NUM_0);
+    if (ret != ESP_OK)
+    {
+        printf("BH1750 init failed: %d\n", ret);
+    }
+    vTaskDelay(pdMS_TO_TICKS(1000));
+
+#ifdef CONFIG_EXAMPLE_INTERNAL_PULLUP
+    gpio_set_pull_mode(dht_gpio, GPIO_PULLUP_ONLY);
+#endif
+
+        uint16_t lux;
+        float temperature, humidity;
+        char yl69_buffer[1024];
+
+        if (is_low == false)
+        {
+            printf("measure high\n");
+            ret = bh1750_measure(I2C_NUM_0, &lux, BH1750_CONTINUOUS_HIGH_RES_MODE);
+        }
+        else
+        {
+            printf("measure low\n");
+            ret = bh1750_measure(I2C_NUM_0, &lux, BH1750_CONTINUOUS_LOW_RES_MODE);
+        }
+
+        if (ret == ESP_OK)
+        {
+            printf("Light intensity: %d lx\n", lux);
+            char lux_char[50];
+            sprintf(lux_char, "%d", lux);
+            esp_mqtt_client_publish(client, "BLE-PLANT/lux", lux_char, 0, 1, 1);
+        }
+        else
+        {
+            printf("BH1750 measurement failed: %d\n", ret);
+        }
+
+        if (dht_read_float_data(SENSOR_TYPE, CONFIG_EXAMPLE_DATA_GPIO, &humidity, &temperature) == ESP_OK)
+        {
+            printf("Humidity: %.1f%% Temp: %.1fC\n", humidity, temperature);
+            char temp_char[50];
+            sprintf(temp_char, "%.1f", temperature);
+            esp_mqtt_client_publish(client, "BLE-PLANT/temperature", temp_char, 0, 1, 1);
+            char humidity_char[50];
+            sprintf(humidity_char, "%.1f", humidity);
+            esp_mqtt_client_publish(client, "BLE-PLANT/humidity", humidity_char, 0, 1, 1);
+        }
+        else
+            printf("Could not read data from sensor\n");
+        uint32_t adc_reading = adc1_get_raw(YL_69_ADC_CHANNEL);
+        // Przelicznie wartości na wilgotność gleby
+        float soil_moisture = (adc_reading / 4095.0) * 100;
+        printf("Wilgotność gleby: %.2f%%\n", soil_moisture);
+        char moisture_char[50];
+        sprintf(moisture_char, "%.1f", soil_moisture);
+        esp_mqtt_client_publish(client, "BLE-PLANT/moisture", moisture_char, 0, 1, 1);
+        vTaskDelay(pdMS_TO_TICKS(2000));
+        turn_off_bh1750();
+}
+
 static void yl69_task(void *arg)
 {
     char yl69_buffer[1024];
@@ -1559,6 +1623,8 @@ void onWakeup()
         vTaskDelay(10);
 
         try_to_connect_to_wifi();
+        vTaskDelay(100);
+        testOnWakeUp();
         // Odczyt danych z pamięci NVS
         err = nvs_open("storage", NVS_READWRITE, &handle);
         if (err != ESP_OK)
