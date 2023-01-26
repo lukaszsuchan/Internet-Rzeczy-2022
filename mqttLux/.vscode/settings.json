@@ -16,6 +16,7 @@
         "future": "c",
         "optional": "c",
         "*.ipp": "c",
-        "ble_svc_gap.h": "c"
+        "ble_svc_gap.h": "c",
+        "*.tcc": "c"
     }
 }

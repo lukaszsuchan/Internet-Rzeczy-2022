@@ -54,7 +54,7 @@
 float temperature;
 float humidity;
 
-static const char remote_device_name[] = "BLE-PLANT";
+static const char remote_device_name[] = "BLE-PLANT-TEMP";
 static bool connect = false;
 static bool get_server = false;
 static esp_gattc_char_elem_t *char_elem_result = NULL;
@@ -249,8 +249,9 @@ static void gattc_profile_event_handler(esp_gattc_cb_event_t event, esp_gatt_if_
                         }
                         else
                             printf("Could not read data from sensor\n");
-                        float fixed_temp = temperature;
+                        double fixed_temp = temperature;
                         uint8_t temp_int = fixed_temp * 10;
+                        printf("%d", temp_int);
                         uint8_t first_number = temp_int / 100;
                         uint8_t second_number = temp_int % 100 / 10;
                         uint8_t third_number = temp_int % 100 % 10;
@@ -390,11 +391,15 @@ static void gattc_profile_event_handler(esp_gattc_cb_event_t event, esp_gatt_if_
             break;
         }
         ESP_LOGI(GATTC_TAG, "write char success ");
+        nvs_flash_erase();
+        esp_restart();
         break;
     case ESP_GATTC_DISCONNECT_EVT:
         connect = false;
         get_server = false;
         ESP_LOGI(GATTC_TAG, "ESP_GATTC_DISCONNECT_EVT, reason = %d", p_data->disconnect.reason);
+          nvs_flash_erase();
+        esp_restart();
         break;
     default:
         break;
@@ -467,6 +472,8 @@ static void esp_gap_cb(esp_gap_ble_cb_event_t event, esp_ble_gap_cb_param_t *par
             }
             break;
         case ESP_GAP_SEARCH_INQ_CMPL_EVT:
+        esp_restart();
+        nvs_flash_erase();
             break;
         default:
             break;
@@ -544,70 +551,70 @@ static void esp_gattc_cb(esp_gattc_cb_event_t event, esp_gatt_if_t gattc_if, esp
 
 void app_main(void)
 {
-    // Initialize NVS.
-    esp_err_t ret = nvs_flash_init();
-    if (ret == ESP_ERR_NVS_NO_FREE_PAGES || ret == ESP_ERR_NVS_NEW_VERSION_FOUND)
-    {
-        ESP_ERROR_CHECK(nvs_flash_erase());
-        ret = nvs_flash_init();
-    }
-    ESP_ERROR_CHECK(ret);
+        // Initialize NVS.
+        esp_err_t ret = nvs_flash_init();
+        if (ret == ESP_ERR_NVS_NO_FREE_PAGES || ret == ESP_ERR_NVS_NEW_VERSION_FOUND)
+        {
+            ESP_ERROR_CHECK(nvs_flash_erase());
+            ret = nvs_flash_init();
+        }
+        ESP_ERROR_CHECK(ret);
 
-    ESP_ERROR_CHECK(esp_bt_controller_mem_release(ESP_BT_MODE_CLASSIC_BT));
+        ESP_ERROR_CHECK(esp_bt_controller_mem_release(ESP_BT_MODE_CLASSIC_BT));
 
-    esp_bt_controller_config_t bt_cfg = BT_CONTROLLER_INIT_CONFIG_DEFAULT();
-    ret = esp_bt_controller_init(&bt_cfg);
-    if (ret)
-    {
-        ESP_LOGE(GATTC_TAG, "%s initialize controller failed: %s\n", __func__, esp_err_to_name(ret));
-        return;
-    }
+        esp_bt_controller_config_t bt_cfg = BT_CONTROLLER_INIT_CONFIG_DEFAULT();
+        ret = esp_bt_controller_init(&bt_cfg);
+        if (ret)
+        {
+            ESP_LOGE(GATTC_TAG, "%s initialize controller failed: %s\n", __func__, esp_err_to_name(ret));
+            return;
+        }
 
-    ret = esp_bt_controller_enable(ESP_BT_MODE_BLE);
-    if (ret)
-    {
-        ESP_LOGE(GATTC_TAG, "%s enable controller failed: %s\n", __func__, esp_err_to_name(ret));
-        return;
-    }
+        ret = esp_bt_controller_enable(ESP_BT_MODE_BLE);
+        if (ret)
+        {
+            ESP_LOGE(GATTC_TAG, "%s enable controller failed: %s\n", __func__, esp_err_to_name(ret));
+            return;
+        }
 
-    ret = esp_bluedroid_init();
-    if (ret)
-    {
-        ESP_LOGE(GATTC_TAG, "%s init bluetooth failed: %s\n", __func__, esp_err_to_name(ret));
-        return;
-    }
+        ret = esp_bluedroid_init();
+        if (ret)
+        {
+            ESP_LOGE(GATTC_TAG, "%s init bluetooth failed: %s\n", __func__, esp_err_to_name(ret));
+            return;
+        }
 
-    ret = esp_bluedroid_enable();
-    if (ret)
-    {
-        ESP_LOGE(GATTC_TAG, "%s enable bluetooth failed: %s\n", __func__, esp_err_to_name(ret));
-        return;
-    }
+        ret = esp_bluedroid_enable();
+        if (ret)
+        {
+            ESP_LOGE(GATTC_TAG, "%s enable bluetooth failed: %s\n", __func__, esp_err_to_name(ret));
+            return;
+        }
 
-    // register the  callback function to the gap module
-    ret = esp_ble_gap_register_callback(esp_gap_cb);
-    if (ret)
-    {
-        ESP_LOGE(GATTC_TAG, "%s gap register failed, error code = %x\n", __func__, ret);
-        return;
-    }
+        // register the  callback function to the gap module
+        ret = esp_ble_gap_register_callback(esp_gap_cb);
+        if (ret)
+        {
+            ESP_LOGE(GATTC_TAG, "%s gap register failed, error code = %x\n", __func__, ret);
+            return;
+        }
 
-    // register the callback function to the gattc module
-    ret = esp_ble_gattc_register_callback(esp_gattc_cb);
-    if (ret)
-    {
-        ESP_LOGE(GATTC_TAG, "%s gattc register failed, error code = %x\n", __func__, ret);
-        return;
-    }
+        // register the callback function to the gattc module
+        ret = esp_ble_gattc_register_callback(esp_gattc_cb);
+        if (ret)
+        {
+            ESP_LOGE(GATTC_TAG, "%s gattc register failed, error code = %x\n", __func__, ret);
+            return;
+        }
 
-    ret = esp_ble_gattc_app_register(PROFILE_A_APP_ID);
-    if (ret)
-    {
-        ESP_LOGE(GATTC_TAG, "%s gattc app register failed, error code = %x\n", __func__, ret);
-    }
-    esp_err_t local_mtu_ret = esp_ble_gatt_set_local_mtu(500);
-    if (local_mtu_ret)
-    {
-        ESP_LOGE(GATTC_TAG, "set local  MTU failed, error code = %x", local_mtu_ret);
-    }
+        ret = esp_ble_gattc_app_register(PROFILE_A_APP_ID);
+        if (ret)
+        {
+            ESP_LOGE(GATTC_TAG, "%s gattc app register failed, error code = %x\n", __func__, ret);
+        }
+        esp_err_t local_mtu_ret = esp_ble_gatt_set_local_mtu(500);
+        if (local_mtu_ret)
+        {
+            ESP_LOGE(GATTC_TAG, "set local  MTU failed, error code = %x", local_mtu_ret);
+        }
 }

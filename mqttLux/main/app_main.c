@@ -109,12 +109,14 @@ bool not_establised = true;
 bool wake_up = false;
 uint32_t time_in_us = 180;
 uint32_t time_to_measure = 15;
+bool init = false;
 
 #define YL_69_ADC_CHANNEL ADC1_CHANNEL_0
 
 volatile char *user_wifi_ssid = "ssid";
 volatile char *user_wifi_pass = "password";
 volatile char *user_ip_server = "ip_server";
+volatile char *ext_temp = "240";
 
 typedef struct
 {
@@ -144,6 +146,7 @@ uint8_t ble_addr_type;
 
 volatile bool were_ssid_given = false;
 volatile bool were_psk_given = false;
+volatile bool were_ex_temp_given = false;
 
 TaskHandle_t xHandle = NULL;
 
@@ -162,8 +165,8 @@ void led_blink()
         gpio_set_level(LED_PIN, 1);
         vTaskDelay(1000 / portTICK_PERIOD_MS);
 
-        //     // ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
-        //     // vTaskDelete(xHandle);
+        ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
+        vTaskDelete(xHandle);
     }
 }
 
@@ -336,9 +339,11 @@ static int device_write_ip_server(uint8_t conn_handle, uint8_t attr_handle, stru
 }
 static int device_write_external_temperature(uint8_t conn_handle, uint8_t attr_handle, struct ble_gatt_access_ctxt *ctxt_temp, void *arg)
 {
-    char *incoming_data_temp = (char *)ctxt_temp->om->om_data;
-    printf("%s", incoming_data_temp);
-    were_psk_given = true;
+    ext_temp = (char *)ctxt_temp->om->om_data;
+
+    printf("%s", ext_temp);
+
+    were_ex_temp_given = true;
     return 0;
 }
 static int device_write_external_humidity(uint8_t conn_handle, uint8_t attr_handle, struct ble_gatt_access_ctxt *ctxt_psk, void *arg)
@@ -366,21 +371,11 @@ static const struct ble_gatt_svc_def gatt_svcs[] = {
          {.uuid = BLE_UUID16_DECLARE(PSK_CHAR),
           .flags = BLE_GATT_CHR_F_WRITE,
           .access_cb = device_write_psk},
-          {.uuid = BLE_UUID16_DECLARE(IP_SERVER),
-          .flags = BLE_GATT_CHR_F_WRITE,
-          .access_cb = device_write_ip_server},
+        //  {.uuid = BLE_UUID16_DECLARE(IP_SERVER),
+        //   .flags = BLE_GATT_CHR_F_WRITE,
+        //   .access_cb = device_write_ip_server},
          {0}}},
-    {.type = BLE_GATT_SVC_TYPE_PRIMARY,
-     .uuid = BLE_UUID16_DECLARE(DEVICE_TEMP_SERVICE_UUID),
-     .characteristics = (struct ble_gatt_chr_def[]){
-         {.uuid = BLE_UUID16_DECLARE(EXTERNAL_TEMPERATURE),
-          .flags = BLE_GATT_CHR_F_WRITE,
-          .access_cb = device_write_external_temperature},
-          {.uuid = BLE_UUID16_DECLARE(EXTERNAL_HUMIDITY),
-          .flags = BLE_GATT_CHR_F_WRITE,
-          .access_cb = device_write_external_humidity},
-         {0}
-     }},
+    {.type = BLE_GATT_SVC_TYPE_PRIMARY, .uuid = BLE_UUID16_DECLARE(DEVICE_TEMP_SERVICE_UUID), .characteristics = (struct ble_gatt_chr_def[]){{.uuid = BLE_UUID16_DECLARE(EXTERNAL_TEMPERATURE), .flags = BLE_GATT_CHR_F_WRITE, .access_cb = device_write_external_temperature}, {.uuid = BLE_UUID16_DECLARE(EXTERNAL_HUMIDITY), .flags = BLE_GATT_CHR_F_WRITE, .access_cb = device_write_external_humidity}, {0}}},
     {0}};
 
 static int ble_gap_event(struct ble_gap_event *event, void *arg)
@@ -449,18 +444,25 @@ void ble_app_advertise(void)
     timer_enable_intr(timer_group, timer_idx);
     timer_isr_register(timer_group, timer_idx, timer_callback, NULL, ESP_INTR_FLAG_IRAM, NULL);
 
-    // Start the timer
-    while (1)
+    if (init)
     {
-        vTaskDelay(10);
-        gpio_set_level(LED_PIN, 0);
-        if (gpio_get_level(BUTTON_GPIO) == 0)
+        // Start the timer
+        while (1)
         {
-            timer_start(timer_group, timer_idx);
-            ble_gap_adv_start(ble_addr_type, NULL, 15000, &adv_params, ble_gap_event, NULL);
-            xTaskCreate(&led_blink, "LED_BLINK", 512, NULL, 5, &xHandle);
-            break;
+            vTaskDelay(10);
+            gpio_set_level(LED_PIN, 0);
+            if (gpio_get_level(BUTTON_GPIO) == 0)
+            {
+                timer_start(timer_group, timer_idx);
+                ble_gap_adv_start(ble_addr_type, NULL, 15000, &adv_params, ble_gap_event, NULL);
+                xTaskCreate(&led_blink, "LED_BLINK", 512, NULL, 5, &xHandle);
+                break;
+            }
         }
+    }
+    else
+    {
+            ble_gap_adv_start(ble_addr_type, NULL, 15000, &adv_params, NULL, NULL);
     }
 }
 
@@ -484,6 +486,20 @@ void try_to_connect_to_ble_and_exchange_data()
     esp_nimble_hci_and_controller_init();                   // initialize bluetooth controller.
     nimble_port_init();                                     // nimble library initialization.
     ESP_ERROR_CHECK(ble_svc_gap_device_name_set(BLE_NAME)); // set BLE name.
+    ble_svc_gap_init();                                     // initialize the gap service.
+    ble_svc_gatt_init();                                    // initailize the gatt service.
+    ble_gatts_count_cfg(gatt_svcs);                         // config all the gatt services that wanted to be used.
+    ble_gatts_add_svcs(gatt_svcs);                          // queues all services.
+    ble_hs_cfg.sync_cb = ble_app_on_sync;
+    nimble_port_freertos_init(host_task);
+}
+
+void try_to_connect_to_ble_and_exchange_temp()
+{
+    nvs_flash_init();
+    esp_nimble_hci_and_controller_init();                   // initialize bluetooth controller.
+    nimble_port_init();                                     // nimble library initialization.
+    ESP_ERROR_CHECK(ble_svc_gap_device_name_set("BLE-PLANT-TEMP")); // set BLE name.
     ble_svc_gap_init();                                     // initialize the gap service.
     ble_svc_gatt_init();                                    // initailize the gatt service.
     ble_gatts_count_cfg(gatt_svcs);                         // config all the gatt services that wanted to be used.
@@ -660,7 +676,8 @@ static void event_handler(void *arg, esp_event_base_t event_base,
             {
                 ESP_LOGI(TAG, "wrong ssid");
                 xEventGroupSetBits(s_wifi_event_group, WIFI_FAIL_BIT);
-            } else if (event->reason == WIFI_REASON_CONNECTION_FAIL)
+            }
+            else if (event->reason == WIFI_REASON_CONNECTION_FAIL)
             {
                 ESP_LOGI(TAG, "wrong password");
                 xEventGroupSetBits(s_wifi_event_group, WIFI_FAIL_BIT);
@@ -773,9 +790,10 @@ void erase_flag()
     nvs_close(my_handle);
 }
 
-void deactive_device() {
+void deactive_device()
+{
     esp_http_client_config_t config_delete = {
-        .url = "http://172.20.10.2:8080/waterit/api/device/esp/BLE-PLANT/confirm",
+        .url = "http://192.168.0.241:8080/waterit/api/device/esp/BLE-PLANT/confirm",
         .method = HTTP_METHOD_DELETE,
     };
     esp_http_client_handle_t client_delete = esp_http_client_init(&config_delete);
@@ -795,9 +813,10 @@ void deactive_device() {
     esp_http_client_cleanup(client_delete);
 }
 
-void confirm_device() {
+void confirm_device()
+{
     esp_http_client_config_t config_delete = {
-        .url = "http://172.20.10.2:8080/waterit/api/device/esp/BLE-PLANT/confirm",
+        .url = "http://192.168.0.241:8080/waterit/api/device/esp/BLE-PLANT/confirm",
         .method = HTTP_METHOD_POST,
     };
     esp_http_client_handle_t client_delete = esp_http_client_init(&config_delete);
@@ -821,7 +840,7 @@ void confirm_device() {
 void activate_device()
 {
     esp_http_client_config_t config = {
-        .url = "http://172.20.10.2:8080/waterit/api/device/activate",
+        .url = "http://192.168.0.241:8080/waterit/api/device/activate",
         .method = HTTP_METHOD_POST,
     };
     esp_http_client_handle_t client = esp_http_client_init(&config);
@@ -884,7 +903,7 @@ char *create_json_string(int data[][4], int num_objects)
 
     nvs_close(handle);
 
-    sprintf(header, "{ \"name\" : \"BLE-PLANT\", \"interval\" : %d,\n\"data\" : ", measurement_interval); // +1 for the null terminator
+    sprintf(header, "{ \"name\" : \"BLE-PLANT\", \"interval\" : %d,\n \"externalTemperature\" : \"%s\"\n ,\"data\" : ", measurement_interval, ext_temp); // +1 for the null terminator
     strcpy(json_string, header);
 
     // Build the JSON string
@@ -920,7 +939,7 @@ void send_data_to_server(int *data, int size)
     printf("%s", json_data);
 
     esp_http_client_config_t config = {
-        .url = "http://172.20.10.2:8080/waterit/api/device/history",
+        .url = "http://192.168.0.241:8080/waterit/api/device/history",
         .method = HTTP_METHOD_POST,
     };
     esp_http_client_handle_t client = esp_http_client_init(&config);
@@ -1211,7 +1230,7 @@ static void mqtt_event_handler(void *handler_args, esp_event_base_t base, int32_
 static void mqtt_app_start(void)
 {
     esp_mqtt_client_config_t mqtt_cfg = {
-        .uri = "mqtt://172.20.10.2",
+        .uri = "mqtt://192.168.0.241",
         .port = 1883,
     };
     client = esp_mqtt_client_init(&mqtt_cfg);
@@ -1424,6 +1443,7 @@ void init_bluetooth_connect_if_first_time()
     if (!load_wifi_credentials_from_nvs(&wifi_credentials))
     {
         printf("\nConnect device by ble with esp sending ssid and password to WIFI network that you want to connect\n");
+        init = true;
         try_to_connect_to_ble_and_exchange_data();
         while (!were_ssid_given && !were_psk_given)
         {
@@ -1534,6 +1554,9 @@ void onWakeup()
     // Jeśli minęło już 5 minut
     if (wakeup_count >= push_interval / measurement_interval)
     {
+
+        try_to_connect_to_ble_and_exchange_temp();
+        vTaskDelay(10);
 
         try_to_connect_to_wifi();
         // Odczyt danych z pamięci NVS
@@ -1780,7 +1803,7 @@ void delete_device()
 {
     deactive_device();
     esp_http_client_config_t config_delete = {
-        .url = "http://172.20.10.2:8080/waterit/api/device/esp/BLE-PLANT",
+        .url = "http://192.168.0.241:8080/waterit/api/device/esp/BLE-PLANT",
         .method = HTTP_METHOD_DELETE,
     };
     esp_http_client_handle_t client_delete = esp_http_client_init(&config_delete);
