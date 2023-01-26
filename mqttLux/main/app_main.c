@@ -130,6 +130,9 @@ wifi_credentials_t wifi_credentials;
 
 #define SSID_CHAR 0xDEAD
 #define PSK_CHAR 0xDEAE
+#define IP_SERVER 0xDEAF
+#define EXTERNAL_TEMPERATURE 0xDEB0
+#define EXTERNAL_HUMIDITY 0xDEB1
 
 #define BLE_NAME "BLE-PLANT"
 
@@ -316,6 +319,34 @@ static int device_write_psk(uint8_t conn_handle, uint8_t attr_handle, struct ble
     were_psk_given = true;
     return 0;
 }
+static int device_write_ip_server(uint8_t conn_handle, uint8_t attr_handle, struct ble_gatt_access_ctxt *ctxt_psk, void *arg)
+{
+    char *incoming_data_psk = (char *)ctxt_psk->om->om_data;
+    printf("incoming message: %s\n", incoming_data_psk);
+    cJSON *payload = cJSON_Parse(incoming_data_psk);
+    // cJSON *ssid = cJSON_GetObjectItem(payload, "SSID");
+    cJSON *psk = cJSON_GetObjectItem(payload, "P");
+    // user_wifi_ssid = ssid->valuestring;
+    user_wifi_pass = psk->valuestring;
+    // user_wifi_pass = incoming_data_psk;
+    printf("WiFi Credentials PSK: %s\n", user_wifi_pass);
+    were_psk_given = true;
+    return 0;
+}
+static int device_write_external_temperature(uint8_t conn_handle, uint8_t attr_handle, struct ble_gatt_access_ctxt *ctxt_temp, void *arg)
+{
+    char *incoming_data_temp = (char *)ctxt_temp->om->om_data;
+    printf("%s", incoming_data_temp);
+    were_psk_given = true;
+    return 0;
+}
+static int device_write_external_humidity(uint8_t conn_handle, uint8_t attr_handle, struct ble_gatt_access_ctxt *ctxt_psk, void *arg)
+{
+    char *incoming_data_psk = (char *)ctxt_psk->om->om_data;
+    printf("incoming message: %s\n", incoming_data_psk);
+    were_psk_given = true;
+    return 0;
+}
 static int device_info(uint16_t con_handle, uint16_t attr_handle, struct ble_gatt_access_ctxt *ctxt, void *arg)
 {
     os_mbuf_append(ctxt->om, "Wifi network details that you want to connect", strlen("Wifi network details that you want to connect"));
@@ -334,6 +365,15 @@ static const struct ble_gatt_svc_def gatt_svcs[] = {
          {.uuid = BLE_UUID16_DECLARE(PSK_CHAR),
           .flags = BLE_GATT_CHR_F_WRITE,
           .access_cb = device_write_psk},
+          {.uuid = BLE_UUID16_DECLARE(IP_SERVER),
+          .flags = BLE_GATT_CHR_F_WRITE,
+          .access_cb = device_write_ip_server},
+          {.uuid = BLE_UUID16_DECLARE(EXTERNAL_TEMPERATURE),
+          .flags = BLE_GATT_CHR_F_WRITE,
+          .access_cb = device_write_external_temperature},
+          {.uuid = BLE_UUID16_DECLARE(EXTERNAL_HUMIDITY),
+          .flags = BLE_GATT_CHR_F_WRITE,
+          .access_cb = device_write_external_humidity},
          {0}}},
     {0}};
 
@@ -609,7 +649,12 @@ static void event_handler(void *arg, esp_event_base_t event_base,
             wifi_event_sta_disconnected_t *event = (wifi_event_sta_disconnected_t *)event_data;
             char ssid_char[event->ssid_len];
             memcpy(event->ssid, ssid_char, sizeof(ssid_char));
-            if (event->reason == WIFI_REASON_CONNECTION_FAIL)
+            printf("%s", user_wifi_ssid);
+            if (event->reason == WIFI_REASON_NO_AP_FOUND && strcmp(user_wifi_ssid, "ssid") == 0)
+            {
+                ESP_LOGI(TAG, "wrong ssid");
+                xEventGroupSetBits(s_wifi_event_group, WIFI_FAIL_BIT);
+            } else if (event->reason == WIFI_REASON_CONNECTION_FAIL)
             {
                 ESP_LOGI(TAG, "wrong password");
                 xEventGroupSetBits(s_wifi_event_group, WIFI_FAIL_BIT);
@@ -1766,14 +1811,6 @@ void app_main(void)
     ESP_LOGI(TAG, "[APP] Startup..");
     ESP_LOGI(TAG, "[APP] Free memory: %d bytes", esp_get_free_heap_size());
     ESP_LOGI(TAG, "[APP] IDF version: %s", esp_get_idf_version());
-
-    // esp_log_level_set("*", ESP_LOG_INFO);
-    // esp_log_level_set("MQTT_CLIENT", ESP_LOG_VERBOSE);
-    // esp_log_level_set("MQTT_EXAMPLE", ESP_LOG_VERBOSE);
-    // esp_log_level_set("TRANSPORT_TCP", ESP_LOG_VERBOSE);
-    // esp_log_level_set("TRANSPORT_SSL", ESP_LOG_VERBOSE);
-    // esp_log_level_set("TRANSPORT", ESP_LOG_VERBOSE);
-    // esp_log_level_set("OUTBOX", ESP_LOG_VERBOSE);
 
     i2c_config_t conf;
     conf.mode = I2C_MODE_MASTER;
